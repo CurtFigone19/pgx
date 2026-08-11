@@ -1,15 +1,22 @@
-// ... existing code ...
-
 func (p *Pool) backgroundHealthCheck(ctx context.Context) {
-	// ... existing code ...
-	// Ensure connection establishment respects the pool's context
-	conn, err := p.connect(ctx)
-	// ... existing code ...
-}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(p.config.HealthCheckPeriod):
+			// Create a context that respects both the pool context and the connect timeout
+			connectCtx := ctx
+			if p.config.ConnConfig.ConnectTimeout > 0 {
+				var cancel context.CancelFunc
+				connectCtx, cancel = context.WithTimeout(ctx, p.config.ConnConfig.ConnectTimeout)
+				defer cancel()
+			}
 
-func (p *Pool) connect(ctx context.Context) (*pgx.Conn, error) {
-	// Use the provided context (which is derived from the pool's context) for dialing
-	return pgx.ConnectConfig(ctx, p.config.ConnConfig)
+			conn, err := p.connect(connectCtx)
+			if err != nil {
+				continue
+			}
+			conn.Close(context.Background())
+		}
+	}
 }
-
-// ... existing code ...
