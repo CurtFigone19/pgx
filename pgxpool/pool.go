@@ -48,7 +48,7 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 				if err != nil {
 					return
 				}
-				conn.Close(context.Background())
+				conn.Close(ctx)
 			}()
 		}
 	}
