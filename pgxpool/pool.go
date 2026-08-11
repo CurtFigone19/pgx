@@ -5,6 +5,31 @@ import (
 	"time"
 )
 
+type ConnConfig struct {
+	ConnectTimeout time.Duration
+}
+
+type Config struct {
+	ConnConfig         ConnConfig
+	HealthCheckPeriod  time.Duration
+	MinConns           int
+}
+
+type conn struct {
+}
+
+func (c *conn) Close(ctx context.Context) error {
+	return nil
+}
+
+type Pool struct {
+	config *Config
+}
+
+func (p *Pool) connect(ctx context.Context) (*conn, error) {
+	return &conn{}, nil
+}
+
 func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 	for {
 		select {
