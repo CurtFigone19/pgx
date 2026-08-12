@@ -13,9 +13,9 @@ type ConnConfig struct {
 }
 
 type Config struct {
-	ConnConfig         ConnConfig
-	HealthCheckPeriod  time.Duration
-	MinConns           int
+	ConnConfig        ConnConfig
+	HealthCheckPeriod time.Duration
+	MinConns          int
 }
 
 type conn struct {
@@ -72,25 +72,30 @@ func (p *Pool) connect(ctx context.Context) (*conn, error) {
 }
 
 func (p *Pool) backgroundHealthCheck(ctx context.Context) {
+	timer := time.NewTimer(p.config.HealthCheckPeriod)
+	defer timer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(p.config.HealthCheckPeriod):
+		case <-timer.C:
 			func() {
-				connectCtx := ctx
-				if p.config.ConnConfig.ConnectTimeout > 0 {
-					var cancel context.CancelFunc
-					connectCtx, cancel = context.WithTimeout(ctx, p.config.ConnConfig.ConnectTimeout)
-					defer cancel()
+				timeout := p.config.ConnConfig.ConnectTimeout
+				if timeout <= 0 {
+					// Default to 30s to prevent indefinite blocking when DB is unresponsive
+					timeout = 30 * time.Second
 				}
+				connectCtx, cancel := context.WithTimeout(ctx, timeout)
+				defer cancel()
 
 				conn, err := p.connect(connectCtx)
 				if err != nil {
 					return
 				}
-				conn.Close(ctx)
+				conn.Close(connectCtx)
 			}()
+			timer.Reset(p.config.HealthCheckPeriod)
 		}
 	}
 }
