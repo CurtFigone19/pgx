@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		ttFatal(err)
 	}
 	defer ln.Close()
 
@@ -39,7 +40,7 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 
 	config, err := ParseConfig(fmt.Sprintf("postgres://none:none@%s/none", ln.Addr().String()))
 	if err != nil {
-		t.Fatal(err)
+			tFatal(err)
 	}
 	config.ConnConfig.ConnectTimeout = 100 * time.Millisecond
 	config.HealthCheckPeriod = 50 * time.Millisecond
@@ -49,12 +50,13 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-		t.Fatal(err)
+			tFatal(err)
 	}
-	defer pool.Close()
 
 	// Wait for a few health check cycles to run and timeout
 	time.Sleep(400 * time.Millisecond)
+
+	pool.Close()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -80,5 +82,109 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 		if !isClosed(conn) {
 			t.Errorf("connection %d is still open, expected it to be closed by ConnectTimeout", i)
 		}
+	}
+}
+
+func TestPoolBackgroundHealthCheckCancel(t *testing.T) {
+	initialGoroutines := runtime.NumGoroutine()
+
+	config := &Config{
+		ConnConfig: ConnConfig{
+			Address: "127.0.0.1:9999",
+		},
+		HealthCheckPeriod: 10 * time.Millisecond,
+		MinConns:           1,
+	}
+
+	dialCalled := make(chan struct{})
+	dialCancelled := make(chan struct{})
+
+	config.ConnConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		close(dialCalled)
+		<-ctx.Done()
+		close(dialCancelled)
+		return nil, ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := ConnectConfig(ctx, config)
+	if err != nil {
+			tFatal(err)
+	}
+
+	// Wait for dial to be called
+	select {
+	case <-dialCalled:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for dial to be called")
+	}
+
+	// Close the pool, which should cancel the context and the dial attempt
+	pool.Close()
+
+	// Wait for dial to be cancelled
+	select {
+	case <-dialCancelled:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for dial to be cancelled")
+	}
+
+	// Wait a bit for the background goroutine to exit
+	time.Sleep(50 * time.Millisecond)
+
+	// Check for goroutine leaks
+	if runtime.NumGoroutine() > initialGoroutines+2 {
+		t.Errorf("possible goroutine leak: active goroutines %d, initial %d", runtime.NumGoroutine(), initialGoroutines)
+	}
+}
+
+func TestPoolBackgroundHealthCheckTimeoutWithBlockingDialer(t *testing.T) {
+	config := &Config{
+		ConnConfig: ConnConfig{
+			Address:        "127.0.0.1:9999",
+			ConnectTimeout: 100 * time.Millisecond,
+		},
+		HealthCheckPeriod: 50 * time.Millisecond,
+	}
+
+	var dialCount int
+	var mu sync.Mutex
+	dialCalled := make(chan struct{}, 10)
+
+	config.ConnConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		mu.Lock()
+		dialCount++
+		mu.Unlock()
+		dialCalled <- struct{}{}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := ConnectConfig(ctx, config)
+	if err != nil {
+			tFatal(err)
+	}
+	defer pool.Close()
+
+	// Wait for at least two dial attempts to verify the health check loop is not blocked indefinitely
+	for i := 0; i < 2; i++ {
+		select {
+		case <-dialCalled:
+		case <-time.After(1 * time.Second):
+			t.Fatalf("timeout waiting for dial attempt %d", i+1)
+		}
+	}
+
+	mu.Lock()
+	count := dialCount
+	mu.Unlock()
+
+	if count < 2 {
+		t.Errorf("expected at least 2 dial attempts, got %d", count)
 	}
 }
