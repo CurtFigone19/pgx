@@ -72,6 +72,9 @@ func (p *Pool) connect(ctx context.Context) (*conn, error) {
 }
 
 func (p *Pool) backgroundHealthCheck(ctx context.Context) {
+	if p.config.HealthCheckPeriod <= 0 {
+		return
+	}
 	ticker := time.NewTicker(p.config.HealthCheckPeriod)
 	defer ticker.Stop()
 
@@ -80,20 +83,16 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			func() {
-				timeout := p.config.ConnConfig.ConnectTimeout
-				if timeout <= 0 {
-					timeout = 5 * time.Second
-				}
-				connectCtx, cancel := context.WithTimeout(ctx, timeout)
-				defer cancel()
-
-				conn, err := p.connect(connectCtx)
-				if err != nil {
-					return
-				}
-				conn.Close(ctx)
-			}()
+			timeout := p.config.ConnConfig.ConnectTimeout
+			if timeout <= 0 {
+				timeout = 5 * time.Second
+			}
+			connectCtx, cancel := context.WithTimeout(ctx, timeout)
+			conn, err := p.connect(connectCtx)
+			cancel()
+			if err == nil {
+				conn.Close(context.Background())
+			}
 		}
 	}
 }
