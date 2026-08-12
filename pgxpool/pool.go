@@ -10,6 +10,7 @@ import (
 type ConnConfig struct {
 	ConnectTimeout time.Duration
 	Address        string
+	DialFunc       func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 type Config struct {
@@ -31,6 +32,7 @@ func (c *conn) Close(ctx context.Context) error {
 
 type Pool struct {
 	config *Config
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
@@ -50,9 +52,10 @@ func ConnectConfig(ctx context.Context, config *Config) (*Pool, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	p := &Pool{
 		config: config,
+		ctx:    ctx,
 		cancel: cancel,
 	}
-	go p.backgroundHealthCheck(ctx)
+	go p.backgroundHealthCheck()
 	return p, nil
 }
 
@@ -63,21 +66,27 @@ func (p *Pool) Close() {
 }
 
 func (p *Pool) connect(ctx context.Context) (*conn, error) {
-	var dialer net.Dialer
-	netConn, err := dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
+	var netConn net.Conn
+	var err error
+	if p.config.ConnConfig.DialFunc != nil {
+		netConn, err = p.config.ConnConfig.DialFunc(ctx, "tcp", p.config.ConnConfig.Address)
+	} else {
+		var dialer net.Dialer
+		netConn, err = dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &conn{netConn: netConn}, nil
 }
 
-func (p *Pool) backgroundHealthCheck(ctx context.Context) {
+func (p *Pool) backgroundHealthCheck() {
 	ticker := time.NewTicker(p.config.HealthCheckPeriod)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-p.ctx.Done():
 			return
 		case <-ticker.C:
 			func() {
@@ -85,14 +94,14 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 				if timeout <= 0 {
 					timeout = 5 * time.Second
 				}
-				connectCtx, cancel := context.WithTimeout(ctx, timeout)
+				connectCtx, cancel := context.WithTimeout(p.ctx, timeout)
 				defer cancel()
 
 				conn, err := p.connect(connectCtx)
 				if err != nil {
 					return
 				}
-				conn.Close(ctx)
+				conn.Close(p.ctx)
 			}()
 		}
 	}
