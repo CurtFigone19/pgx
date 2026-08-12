@@ -72,11 +72,14 @@ func (p *Pool) connect(ctx context.Context) (*conn, error) {
 }
 
 func (p *Pool) backgroundHealthCheck(ctx context.Context) {
+	ticker := time.NewTicker(p.config.HealthCheckPeriod)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(p.config.HealthCheckPeriod):
+		case <-ticker.C:
 			func() {
 				timeout := p.config.ConnConfig.ConnectTimeout
 				if timeout <= 0 {
