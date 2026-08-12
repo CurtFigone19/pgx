@@ -99,7 +99,7 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 			conn, err := p.connect(connectCtx)
 			cancel()
 			if err == nil {
-				conn.Close(context.Background())
+				_ = conn.Close(context.Background())
 			}
 		}
 	}
