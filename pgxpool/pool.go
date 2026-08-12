@@ -78,12 +78,12 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 			return
 		case <-time.After(p.config.HealthCheckPeriod):
 			func() {
-				connectCtx := ctx
-				if p.config.ConnConfig.ConnectTimeout > 0 {
-					var cancel context.CancelFunc
-					connectCtx, cancel = context.WithTimeout(ctx, p.config.ConnConfig.ConnectTimeout)
-					defer cancel()
+				timeout := p.config.ConnConfig.ConnectTimeout
+				if timeout <= 0 {
+					timeout = 5 * time.Second
 				}
+				connectCtx, cancel := context.WithTimeout(ctx, timeout)
+				defer cancel()
 
 				conn, err := p.connect(connectCtx)
 				if err != nil {
