@@ -10,6 +10,7 @@ import (
 type ConnConfig struct {
 	ConnectTimeout time.Duration
 	Address        string
+	DialFunc       func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 type Config struct {
@@ -63,6 +64,13 @@ func (p *Pool) Close() {
 }
 
 func (p *Pool) connect(ctx context.Context) (*conn, error) {
+	if p.config.ConnConfig.DialFunc != nil {
+		netConn, err := p.config.ConnConfig.DialFunc(ctx, "tcp", p.config.ConnConfig.Address)
+		if err != nil {
+			return nil, err
+		}
+		return &conn{netConn: netConn}, nil
+	}
 	var dialer net.Dialer
 	netConn, err := dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
 	if err != nil {
@@ -91,7 +99,7 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 			conn, err := p.connect(connectCtx)
 			cancel()
 			if err == nil {
-				conn.Close(context.Background())
+				_ = conn.Close(context.Background())
 			}
 		}
 	}

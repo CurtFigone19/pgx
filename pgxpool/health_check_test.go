@@ -13,7 +13,7 @@ import (
 func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		ttFatal(err)
+		t.Fatal(err)
 	}
 	defer ln.Close()
 
@@ -40,7 +40,7 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 
 	config, err := ParseConfig(fmt.Sprintf("postgres://none:none@%s/none", ln.Addr().String()))
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 	config.ConnConfig.ConnectTimeout = 100 * time.Millisecond
 	config.HealthCheckPeriod = 50 * time.Millisecond
@@ -50,7 +50,7 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 
 	// Wait for a few health check cycles to run and timeout
@@ -111,7 +111,7 @@ func TestPoolBackgroundHealthCheckCancel(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 
 	// Wait for dial to be called
@@ -167,7 +167,7 @@ func TestPoolBackgroundHealthCheckTimeoutWithBlockingDialer(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 	defer pool.Close()
 
