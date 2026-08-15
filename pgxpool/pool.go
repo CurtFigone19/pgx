@@ -91,7 +91,10 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 			conn, err := p.connect(connectCtx)
 			cancel()
 			if err == nil {
-				conn.Close(context.Background())
+				// Close with the pool's lifecycle context, not context.Background,
+				// so a health-check connection never blocks past pool shutdown.
+				// See issue: respect context deadline during health-check close.
+				conn.Close(ctx)
 			}
 		}
 	}
