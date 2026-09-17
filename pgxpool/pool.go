@@ -10,6 +10,7 @@ import (
 type ConnConfig struct {
 	ConnectTimeout time.Duration
 	Address        string
+	DialFunc       func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 type Config struct {
@@ -52,7 +53,9 @@ func ConnectConfig(ctx context.Context, config *Config) (*Pool, error) {
 		config: config,
 		cancel: cancel,
 	}
+
 	go p.backgroundHealthCheck(ctx)
+
 	return p, nil
 }
 
@@ -63,8 +66,16 @@ func (p *Pool) Close() {
 }
 
 func (p *Pool) connect(ctx context.Context) (*conn, error) {
-	var dialer net.Dialer
-	netConn, err := dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
+	var netConn net.Conn
+	var err error
+
+	if p.config.ConnConfig.DialFunc != nil {
+		netConn, err = p.config.ConnConfig.DialFunc(ctx, "tcp", p.config.ConnConfig.Address)
+	} else {
+		var dialer net.Dialer
+		netConn, err = dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +86,7 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 	if p.config.HealthCheckPeriod <= 0 {
 		return
 	}
+
 	ticker := time.NewTicker(p.config.HealthCheckPeriod)
 	defer ticker.Stop()
 
@@ -88,8 +100,10 @@ func (p *Pool) backgroundHealthCheck(ctx context.Context) {
 				timeout = 5 * time.Second
 			}
 			connectCtx, cancel := context.WithTimeout(ctx, timeout)
+			
 			conn, err := p.connect(connectCtx)
 			cancel()
+			
 			if err == nil {
 				conn.Close(context.Background())
 			}
