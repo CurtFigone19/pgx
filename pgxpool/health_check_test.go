@@ -13,7 +13,7 @@ import (
 func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		ttFatal(err)
+		t.Fatal(err)
 	}
 	defer ln.Close()
 
@@ -40,7 +40,7 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 
 	config, err := ParseConfig(fmt.Sprintf("postgres://none:none@%s/none", ln.Addr().String()))
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 	config.ConnConfig.ConnectTimeout = 100 * time.Millisecond
 	config.HealthCheckPeriod = 50 * time.Millisecond
@@ -50,7 +50,7 @@ func TestPoolBackgroundHealthCheckTimeout(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 
 	// Wait for a few health check cycles to run and timeout
@@ -93,7 +93,7 @@ func TestPoolBackgroundHealthCheckCancel(t *testing.T) {
 			Address: "127.0.0.1:9999",
 		},
 		HealthCheckPeriod: 10 * time.Millisecond,
-		MinConns:           1,
+		MinConns:          1,
 	}
 
 	dialCalled := make(chan struct{})
@@ -111,30 +111,25 @@ func TestPoolBackgroundHealthCheckCancel(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 
-	// Wait for dial to be called
 	select {
 	case <-dialCalled:
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for dial to be called")
 	}
 
-	// Close the pool, which should cancel the context and the dial attempt
 	pool.Close()
 
-	// Wait for dial to be cancelled
 	select {
 	case <-dialCancelled:
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for dial to be cancelled")
 	}
 
-	// Wait a bit for the background goroutine to exit
 	time.Sleep(50 * time.Millisecond)
 
-	// Check for goroutine leaks
 	if runtime.NumGoroutine() > initialGoroutines+2 {
 		t.Errorf("possible goroutine leak: active goroutines %d, initial %d", runtime.NumGoroutine(), initialGoroutines)
 	}
@@ -167,11 +162,10 @@ func TestPoolBackgroundHealthCheckTimeoutWithBlockingDialer(t *testing.T) {
 
 	pool, err := ConnectConfig(ctx, config)
 	if err != nil {
-			tFatal(err)
+		t.Fatal(err)
 	}
 	defer pool.Close()
 
-	// Wait for at least two dial attempts to verify the health check loop is not blocked indefinitely
 	for i := 0; i < 2; i++ {
 		select {
 		case <-dialCalled:
