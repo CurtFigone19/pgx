@@ -7,15 +7,18 @@ import (
 	"time"
 )
 
+type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
+
 type ConnConfig struct {
 	ConnectTimeout time.Duration
 	Address        string
+	DialFunc       DialFunc
 }
 
 type Config struct {
-	ConnConfig         ConnConfig
-	HealthCheckPeriod  time.Duration
-	MinConns           int
+	ConnConfig        ConnConfig
+	HealthCheckPeriod time.Duration
+	MinConns          int
 }
 
 type conn struct {
@@ -63,9 +66,24 @@ func (p *Pool) Close() {
 }
 
 func (p *Pool) connect(ctx context.Context) (*conn, error) {
-	var dialer net.Dialer
-	netConn, err := dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
+	var (
+		netConn net.Conn
+		err     error
+	)
+	if p.config.ConnConfig.DialFunc != nil {
+		netConn, err = p.config.ConnConfig.DialFunc(ctx, "tcp", p.config.ConnConfig.Address)
+	} else {
+		var dialer net.Dialer
+		netConn, err = dialer.DialContext(ctx, "tcp", p.config.ConnConfig.Address)
+	}
 	if err != nil {
+		return nil, err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = netConn.SetDeadline(deadline)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = netConn.Close()
 		return nil, err
 	}
 	return &conn{netConn: netConn}, nil
